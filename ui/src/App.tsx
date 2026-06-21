@@ -122,6 +122,10 @@ function cleanOptions(options: TaskOptions): TaskOptions {
   };
 }
 
+function onlineProvider(params: TaskOptions['engine_params']) {
+  return params.provider || 'openai';
+}
+
 async function describeHttpError(response: Response) {
   let detail = '';
   try {
@@ -156,6 +160,8 @@ export function App() {
   const [message, setMessage] = useState('等待引擎就绪');
   const [isDragging, setIsDragging] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [credentialStatus, setCredentialStatus] = useState<Record<string, boolean>>({});
+  const [isCredentialBusy, setIsCredentialBusy] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const apiBaseUrl = useMemo(() => {
@@ -166,10 +172,12 @@ export function App() {
   const canStart = Boolean(apiBaseUrl && inputPath.trim());
   const isRunning = !terminalStages.has(taskEvent.stage) && taskId !== null;
   const progressPercent = Math.round(taskEvent.progress * 100);
+  const currentProvider = onlineProvider(options.engine_params);
+  const hasStoredApiKey = Boolean(credentialStatus[currentProvider]);
 
   useEffect(() => {
     let disposed = false;
-    let unlisten: (() => void) | undefined;
+    const unlisten: Array<() => void> = [];
 
     void listen<{ base_url: string }>('engine-ready', (event) => {
       setBaseUrl(event.payload.base_url);
@@ -180,7 +188,53 @@ export function App() {
           fn();
           return;
         }
-        unlisten = fn;
+        unlisten.push(fn);
+      })
+      .catch(() => {
+        setMessage('可手动填写引擎地址');
+      });
+
+    void listen<number | null>('engine-exit', () => {
+      setBaseUrl(null);
+      setCapabilities(null);
+      setMessage('引擎已退出，正在准备重启');
+    })
+      .then((fn) => {
+        if (disposed) {
+          fn();
+          return;
+        }
+        unlisten.push(fn);
+      })
+      .catch(() => {
+        setMessage('可手动填写引擎地址');
+      });
+
+    void listen<number>('engine-restarting', (event) => {
+      setMessage(`引擎正在第 ${event.payload} 次重启`);
+    })
+      .then((fn) => {
+        if (disposed) {
+          fn();
+          return;
+        }
+        unlisten.push(fn);
+      })
+      .catch(() => {
+        setMessage('可手动填写引擎地址');
+      });
+
+    void listen<string>('engine-error', (event) => {
+      setBaseUrl(null);
+      setCapabilities(null);
+      setMessage(`引擎启动失败: ${event.payload}`);
+    })
+      .then((fn) => {
+        if (disposed) {
+          fn();
+          return;
+        }
+        unlisten.push(fn);
       })
       .catch(() => {
         setMessage('可手动填写引擎地址');
@@ -199,7 +253,7 @@ export function App() {
 
     return () => {
       disposed = true;
-      unlisten?.();
+      unlisten.forEach((fn) => fn());
     };
   }, []);
 
@@ -225,11 +279,115 @@ export function App() {
     return () => controller.abort();
   }, [apiBaseUrl]);
 
+  useEffect(() => {
+    if (options.engine !== 'online') return;
+
+    let disposed = false;
+    void invoke<boolean>('api_key_status', { provider: currentProvider })
+      .then((hasKey) => {
+        if (disposed) return;
+        setCredentialStatus((current) => ({ ...current, [currentProvider]: hasKey }));
+      })
+      .catch(() => {});
+
+    return () => {
+      disposed = true;
+    };
+  }, [currentProvider, options.engine]);
+
   function apiUrl(path: string) {
     if (!apiBaseUrl) {
       throw new Error('engine is not ready');
     }
     return `${apiBaseUrl}${path}`;
+  }
+
+  async function restartEngine() {
+    setMessage('正在拉起引擎');
+    try {
+      await invoke('restart_engine');
+    } catch (error) {
+      setMessage(`引擎启动失败: ${String(error)}`);
+    }
+  }
+
+  async function saveCurrentApiKey() {
+    const provider = currentProvider;
+    const apiKey = (options.engine_params.api_key || '').trim();
+    if (!apiKey) {
+      setMessage('请先输入 API key');
+      return;
+    }
+    setIsCredentialBusy(true);
+    try {
+      await invoke('save_api_key', { provider, apiKey });
+      setCredentialStatus((current) => ({ ...current, [provider]: true }));
+      setMessage('API key 已保存到 Windows 凭据');
+    } catch (error) {
+      setMessage(`保存 API key 失败: ${String(error)}`);
+    } finally {
+      setIsCredentialBusy(false);
+    }
+  }
+
+  async function loadCurrentApiKey() {
+    const provider = currentProvider;
+    setIsCredentialBusy(true);
+    try {
+      const apiKey = await invoke<string | null>('load_api_key', { provider });
+      if (apiKey) {
+        updateEngineParam('api_key', apiKey);
+        setCredentialStatus((current) => ({ ...current, [provider]: true }));
+        setMessage('已从 Windows 凭据读取 API key');
+      } else {
+        setCredentialStatus((current) => ({ ...current, [provider]: false }));
+        setMessage('未找到已保存的 API key');
+      }
+    } catch (error) {
+      setMessage(`读取 API key 失败: ${String(error)}`);
+    } finally {
+      setIsCredentialBusy(false);
+    }
+  }
+
+  async function deleteCurrentApiKey() {
+    const provider = currentProvider;
+    setIsCredentialBusy(true);
+    try {
+      await invoke('delete_api_key', { provider });
+      updateEngineParam('api_key', '');
+      setCredentialStatus((current) => ({ ...current, [provider]: false }));
+      setMessage('已删除保存的 API key');
+    } catch (error) {
+      setMessage(`删除 API key 失败: ${String(error)}`);
+    } finally {
+      setIsCredentialBusy(false);
+    }
+  }
+
+  async function optionsForRun() {
+    const next = cleanOptions(options);
+    if (next.engine !== 'online' || next.engine_params.api_key) {
+      return next;
+    }
+
+    const provider = onlineProvider(next.engine_params);
+    try {
+      const apiKey = await invoke<string | null>('load_api_key', { provider });
+      if (apiKey) {
+        setCredentialStatus((current) => ({ ...current, [provider]: true }));
+        return {
+          ...next,
+          engine_params: {
+            ...next.engine_params,
+            api_key: apiKey,
+          },
+        };
+      }
+    } catch {
+      // The engine will surface a missing key error if no runtime key is available.
+    }
+    return next;
   }
 
   function updateOption<K extends keyof TaskOptions>(key: K, value: TaskOptions[K]) {
@@ -327,6 +485,7 @@ export function App() {
     setTaskEvent({ stage: 'pending', progress: 0, error: null });
     setMessage('任务已提交');
 
+    const runOptions = await optionsForRun();
     let response: Response;
     try {
       response = await fetch(apiUrl('/tasks'), {
@@ -334,7 +493,7 @@ export function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           input_path: inputPath.trim(),
-          options: cleanOptions(options),
+          options: runOptions,
         }),
       });
     } catch {
@@ -498,9 +657,22 @@ export function App() {
           <section className="panel-section">
             <div className="section-title">
               <h2>引擎</h2>
-              <button type="button" onClick={() => void startTask()} disabled={!canStart || isRunning}>
-                开始
-              </button>
+              <div className="button-row">
+                <button
+                  type="button"
+                  onClick={() => void restartEngine()}
+                  disabled={Boolean(apiBaseUrl)}
+                >
+                  重试
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void startTask()}
+                  disabled={!canStart || isRunning}
+                >
+                  开始
+                </button>
+              </div>
             </div>
             <label>
               本地接口
@@ -545,7 +717,10 @@ export function App() {
                 <select
                   value={options.device ?? 'auto'}
                   onChange={(event) =>
-                    updateOption('device', event.target.value === 'auto' ? null : event.target.value)
+                    updateOption(
+                      'device',
+                      event.target.value === 'auto' ? null : event.target.value,
+                    )
                   }
                 >
                   <option value="auto">自适应</option>
@@ -563,7 +738,7 @@ export function App() {
                   <option value="online">在线</option>
                 </select>
               </label>
-      {options.engine === 'online' ? (
+              {options.engine === 'online' ? (
                 <>
                   <label>
                     Provider
@@ -596,15 +771,41 @@ export function App() {
                       }
                     />
                   </label>
-                  <label className="wide-control">
-                    API key
-                    <input
-                      type="password"
-                      value={options.engine_params.api_key || ''}
-                      onChange={(event) => updateEngineParam('api_key', event.target.value)}
-                      placeholder="仅本次运行使用"
-                    />
-                  </label>
+                  <div className="wide-control credential-control">
+                    <label>
+                      API key
+                      <input
+                        type="password"
+                        value={options.engine_params.api_key || ''}
+                        onChange={(event) => updateEngineParam('api_key', event.target.value)}
+                        placeholder="仅本次运行使用"
+                      />
+                    </label>
+                    <div className="credential-row">
+                      <span>{hasStoredApiKey ? 'Windows 凭据已保存' : '未保存'}</span>
+                      <button
+                        type="button"
+                        onClick={() => void saveCurrentApiKey()}
+                        disabled={isCredentialBusy}
+                      >
+                        保存
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void loadCurrentApiKey()}
+                        disabled={isCredentialBusy || !hasStoredApiKey}
+                      >
+                        加载
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void deleteCurrentApiKey()}
+                        disabled={isCredentialBusy || !hasStoredApiKey}
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </div>
                   {options.engine_params.provider === 'openai' ? (
                     <label className="wide-control">
                       Base URL
@@ -749,7 +950,11 @@ export function App() {
                       <strong>{index + 1}</strong>
                       <span>{formatSeconds(segment.start)}</span>
                       <span>{formatSeconds(segment.end)}</span>
-                      <button type="button" onClick={() => mergeWithPrevious(index)} disabled={index === 0}>
+                      <button
+                        type="button"
+                        onClick={() => mergeWithPrevious(index)}
+                        disabled={index === 0}
+                      >
                         合并
                       </button>
                       <button type="button" onClick={() => splitSegment(index)}>
@@ -776,7 +981,9 @@ export function App() {
                           min="0"
                           step="0.01"
                           value={segment.end}
-                          onChange={(event) => updateSegment(index, 'end', Number(event.target.value))}
+                          onChange={(event) =>
+                            updateSegment(index, 'end', Number(event.target.value))
+                          }
                         />
                       </label>
                     </div>
