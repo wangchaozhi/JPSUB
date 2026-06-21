@@ -1,0 +1,233 @@
+name: CI and Release
+
+on:
+  push:
+    branches: ["main", "master"]
+    tags: ["v*", "release-*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  python-test:
+    name: Python tests
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install fastapi "uvicorn[standard]" sse-starlette srt pysubs2 pydantic pytest httpx
+
+      - name: Run tests
+        shell: pwsh
+        run: python -m pytest tests
+
+  frontend-build:
+    name: Frontend build
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ui
+        run: npm ci
+
+      - name: Lint
+        working-directory: ui
+        run: npm run lint
+
+      - name: Build
+        working-directory: ui
+        run: npm run build
+
+      - name: Pack frontend dist
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-assets | Out-Null
+          Compress-Archive -Path ui/dist/* -DestinationPath release-assets/jpsub-ui-dist.zip -Force
+
+      - name: Upload frontend dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: release-assets/jpsub-ui-dist.zip
+          if-no-files-found: error
+
+  engine-sidecar:
+    name: Build Python sidecar
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sidecar with PyInstaller
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force ci-logs, release-assets | Out-Null
+          "from engine.server import main; main()" | Set-Content -Encoding UTF8 ci_engine_entry.py
+          python -m pip install --upgrade pip *>&1 | Tee-Object -FilePath ci-logs/engine-sidecar.log
+          python -m pip install -e ".[dev]" *>&1 | Tee-Object -FilePath ci-logs/engine-sidecar.log -Append
+          python -m PyInstaller `
+            --noconfirm `
+            --clean `
+            --onefile `
+            --name engine-x86_64-pc-windows-msvc `
+            --collect-submodules engine `
+            --collect-submodules faster_whisper `
+            --collect-submodules ctranslate2 `
+            --collect-submodules sse_starlette `
+            ci_engine_entry.py *>&1 | Tee-Object -FilePath ci-logs/engine-sidecar.log -Append
+          Copy-Item dist/engine-x86_64-pc-windows-msvc.exe release-assets/engine-x86_64-pc-windows-msvc.exe -ErrorAction Stop
+
+      - name: Upload sidecar asset
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-sidecar
+          path: release-assets/engine-x86_64-pc-windows-msvc.exe
+          if-no-files-found: ignore
+
+      - name: Upload sidecar logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-sidecar-logs
+          path: ci-logs/engine-sidecar.log
+          if-no-files-found: ignore
+
+  tauri-bundle:
+    name: Build Tauri bundle
+    runs-on: windows-latest
+    needs: [frontend-build, engine-sidecar]
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        working-directory: ui
+        run: npm ci
+
+      - name: Download sidecar
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: engine-sidecar
+          path: downloaded-sidecar
+
+      - name: Build Tauri app
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force ci-logs, release-assets, shell/src-tauri/binaries | Out-Null
+          try {
+            $sidecar = "downloaded-sidecar/engine-x86_64-pc-windows-msvc.exe"
+            if (!(Test-Path $sidecar)) {
+              throw "engine sidecar artifact is missing; see engine-sidecar logs"
+            }
+            Copy-Item $sidecar shell/src-tauri/binaries/engine-x86_64-pc-windows-msvc.exe -Force
+
+            choco install ffmpeg -y --no-progress *>&1 | Tee-Object -FilePath ci-logs/tauri-bundle.log
+            $ffmpeg = (Get-Command ffmpeg.exe -ErrorAction Stop).Source
+            Copy-Item $ffmpeg shell/src-tauri/binaries/ffmpeg.exe -Force
+
+            cargo install tauri-cli --locked *>&1 | Tee-Object -FilePath ci-logs/tauri-bundle.log -Append
+            cargo tauri build --manifest-path shell/src-tauri/Cargo.toml *>&1 | Tee-Object -FilePath ci-logs/tauri-bundle.log -Append
+
+            Get-ChildItem shell/src-tauri/target/release/bundle -Recurse -File |
+              Copy-Item -Destination release-assets -Force
+          } catch {
+            $_ | Out-String | Tee-Object -FilePath ci-logs/tauri-bundle.log -Append
+            exit 1
+          }
+
+      - name: Upload Tauri assets
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-bundle
+          path: release-assets/*
+          if-no-files-found: ignore
+
+      - name: Upload Tauri logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-bundle-logs
+          path: ci-logs/tauri-bundle.log
+          if-no-files-found: ignore
+
+  release:
+    name: Create tag release
+    runs-on: windows-latest
+    if: startsWith(github.ref, 'refs/tags/') && always()
+    needs: [python-test, frontend-build, engine-sidecar, tauri-bundle]
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Prepare release notes and logs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-assets | Out-Null
+          if (Test-Path artifacts) {
+            Get-ChildItem artifacts -File | Copy-Item -Destination release-assets -Force
+          }
+          if (Test-Path release-assets/*.log) {
+            Compress-Archive -Path release-assets/*.log -DestinationPath release-assets/build-logs.zip -Force
+          }
+          @'
+          ## Build summary
+
+          - Python tests: ${{ needs.python-test.result }}
+          - Frontend build: ${{ needs.frontend-build.result }}
+          - Python sidecar: ${{ needs.engine-sidecar.result }}
+          - Tauri bundle: ${{ needs.tauri-bundle.result }}
+
+          Optional packaging jobs are allowed to fail. Download `build-logs.zip` from this release when an asset is missing.
+          '@ | Set-Content -Encoding UTF8 release-notes.md
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release-notes.md
+          files: release-assets/*
+          fail_on_unmatched_files: false

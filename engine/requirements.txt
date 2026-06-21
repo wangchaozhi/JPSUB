@@ -1,0 +1,11 @@
+# 全部安装最新版:pip install -U -r requirements.txt
+faster-whisper
+fastapi
+uvicorn[standard]
+sse-starlette
+httpx
+pysubs2
+srt
+pydantic
+# ffmpeg 走 conda: conda install -c conda-forge ffmpeg
+# GPU(可选): pip install -U nvidia-cublas-cu12 nvidia-cudnn-cu12
