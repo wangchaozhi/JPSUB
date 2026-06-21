@@ -51,7 +51,7 @@ def extract_audio(input_path: str, out_wav: str) -> str:
         "wav",
         out_wav,
     ]
-    subprocess.run(cmd, check=True, capture_output=True)
+    _run_media_command(cmd, "ffmpeg 抽音轨失败")
     return out_wav
 
 
@@ -70,7 +70,7 @@ def probe_duration(input_path: str) -> float:
         "default=noprint_wrappers=1:nokey=1",
         input_path,
     ]
-    out = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout.strip()
+    out = _run_media_command(cmd, "ffprobe 读取视频失败").stdout.strip()
     try:
         return float(out)
     except ValueError:
@@ -93,5 +93,15 @@ def burn_in(input_video: str, subtitle_file: str, out_video: str) -> str:
         "copy",
         out_video,
     ]
-    subprocess.run(cmd, check=True, capture_output=True)
+    _run_media_command(cmd, "ffmpeg 烧录字幕失败")
     return out_video
+
+
+def _run_media_command(cmd: list[str], message: str) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip()
+        if detail:
+            raise RuntimeError(f"{message}: {detail}") from exc
+        raise RuntimeError(f"{message}: {exc}") from exc

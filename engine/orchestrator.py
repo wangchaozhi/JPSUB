@@ -124,8 +124,10 @@ def run(
 def _classify(e: Exception) -> TaskError:
     msg = str(e)
     low = msg.lower()
-    if "ffmpeg" in low or "no such file" in low:
-        return TaskError("input", msg, "检查输入文件或 ffmpeg 是否安装")
+    if "不存在" in msg or "no such file" in low or "not found" in low:
+        return TaskError("input", msg, "检查视频路径是否完整,建议用“选择”按钮重新选文件")
+    if "ffmpeg" in low or "ffprobe" in low:
+        return TaskError("input", msg, "检查输入文件是否可读,或确认 ffmpeg/ffprobe 可用")
     if "out of memory" in low or "cuda" in low and "memory" in low:
         return TaskError("oom", msg, "显存不足,降低模型档或改用 CPU")
     if "auth" in low or "api key" in low or "401" in low:

@@ -149,3 +149,12 @@ def test_model_status_returns_local_cache_state() -> None:
     assert payload["model"] == "medium"
     assert payload["repo_id"] == "Systran/faster-whisper-medium"
     assert isinstance(payload["cached"], bool)
+
+
+def test_create_task_rejects_missing_input_file(tmp_path) -> None:
+    client = TestClient(server.app)
+
+    response = client.post("/tasks", json={"input_path": str(tmp_path / "missing.mkv")})
+
+    assert response.status_code == 400
+    assert "视频文件不存在" in response.json()["detail"]

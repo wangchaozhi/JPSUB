@@ -109,6 +109,10 @@ async def model_download_events(model: str | None = None):
 
 @app.post("/tasks")
 def create_task(body: CreateTaskBody):
+    input_path = Path(body.input_path)
+    if not input_path.is_file():
+        raise HTTPException(400, f"视频文件不存在: {input_path}")
+
     options = TaskOptions(**body.options)
     task = Task(input_path=body.input_path, options=options)
     cancel = threading.Event()
