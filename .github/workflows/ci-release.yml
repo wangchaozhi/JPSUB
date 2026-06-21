@@ -98,6 +98,7 @@ jobs:
             --name engine-x86_64-pc-windows-msvc `
             --collect-submodules engine `
             --collect-submodules faster_whisper `
+            --collect-data faster_whisper `
             --collect-submodules ctranslate2 `
             --collect-submodules huggingface_hub `
             --collect-submodules sse_starlette `
