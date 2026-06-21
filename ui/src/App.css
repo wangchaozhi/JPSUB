@@ -269,6 +269,60 @@ p {
   grid-column: 1 / -1;
 }
 
+.model-cache {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #d7dfdc;
+  border-radius: 7px;
+  padding: 10px;
+  background: #fbfcfb;
+}
+
+.model-cache-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.model-cache-head div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.model-cache-head span,
+.model-cache-meta {
+  color: #687774;
+  font-size: 12px;
+}
+
+.model-cache-head strong {
+  color: #253133;
+  font-size: 13px;
+}
+
+.model-progress {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf1ef;
+}
+
+.model-progress div {
+  height: 100%;
+  border-radius: inherit;
+  background: #0f766e;
+  transition: width 180ms ease;
+}
+
+.model-cache-meta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
 .credential-control {
   display: grid;
   gap: 8px;
@@ -545,6 +599,15 @@ p {
 
   .credential-row span {
     grid-column: 1 / -1;
+  }
+
+  .model-cache-head,
+  .model-cache-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .model-cache-head button {
+    width: 100%;
   }
 
   .segment-row {

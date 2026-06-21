@@ -11,6 +11,7 @@ from engine.models import Segment, Stage, Task, TaskOptions
 def setup_function() -> None:
     server._tasks.clear()
     server._cancels.clear()
+    server._model_download_locks.clear()
 
 
 def _add_done_task(tmp_path):
@@ -136,3 +137,15 @@ def test_put_segments_rejects_invalid_time_range(tmp_path) -> None:
     )
 
     assert response.status_code == 400
+
+
+def test_model_status_returns_local_cache_state() -> None:
+    client = TestClient(server.app)
+
+    response = client.get("/models/medium/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["model"] == "medium"
+    assert payload["repo_id"] == "Systran/faster-whisper-medium"
+    assert isinstance(payload["cached"], bool)

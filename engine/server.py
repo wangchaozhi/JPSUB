@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import queue
 import socket
 import threading
 from pathlib import Path
@@ -18,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from . import asr, media, subtitle
+from . import asr, media, model_cache, subtitle
 from .models import Segment, Stage, Task, TaskOptions
 from .orchestrator import run
 
@@ -33,6 +34,7 @@ app.add_middleware(
 # 内存任务表(单机单用户够用;多任务可换队列)
 _tasks: dict[str, Task] = {}
 _cancels: dict[str, threading.Event] = {}
+_model_download_locks: dict[str, threading.Lock] = {}
 
 
 class CreateTaskBody(BaseModel):
@@ -61,6 +63,48 @@ def capabilities():
         "compute_type": compute_type,
         "default_model": default_model,
     }
+
+
+@app.get("/models/{model_name}/status")
+def model_status(model_name: str):
+    return model_cache.local_status(_resolve_model_name(model_name))
+
+
+@app.get("/models/download/events")
+async def model_download_events(model: str | None = None):
+    model_name = _resolve_model_name(model)
+    events: queue.Queue[dict[str, Any] | None] = queue.Queue()
+    lock = _model_download_locks.setdefault(model_name, threading.Lock())
+
+    def worker():
+        if not lock.acquire(blocking=False):
+            events.put(
+                {
+                    "stage": "failed",
+                    "model": model_name,
+                    "error": "model download is already running",
+                }
+            )
+            events.put(None)
+            return
+        try:
+            model_cache.download_model(model_name, on_event=events.put)
+        except Exception as exc:
+            events.put({"stage": "failed", "model": model_name, "error": str(exc)})
+        finally:
+            lock.release()
+            events.put(None)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    async def gen():
+        while True:
+            event = await asyncio.to_thread(events.get)
+            if event is None:
+                break
+            yield {"data": json.dumps(event, ensure_ascii=False)}
+
+    return EventSourceResponse(gen())
 
 
 @app.post("/tasks")
@@ -161,6 +205,12 @@ def _get_task(task_id: str) -> Task:
     if not task:
         raise HTTPException(404, "task not found")
     return task
+
+
+def _resolve_model_name(model_name: str | None) -> str:
+    if model_name and model_name != "auto":
+        return model_cache.normalize_model_name(model_name)
+    return asr.detect_device()[2]
 
 
 def _segment_from_body(index: int, seg: SegmentBody) -> Segment:

@@ -15,6 +15,7 @@
 - 翻译已接真实引擎:Ollama 本地模型、OpenAI-compatible Chat Completions、DeepL,带批处理、术语表、退避重试和单段兜底。
 - FastAPI 服务已实现:任务创建、SSE 进度、取消、结果查询、字幕分段 GET/PUT 回写。
 - React 工作台已实现:导入、引擎状态、模型/翻译/输出设置、术语表、进度、字幕编辑器。
+- Whisper 模型预下载已实现:引擎提供模型缓存状态和下载 SSE,前端显示缓存状态、下载进度和速度。
 - Tauri 壳已实现:启动 Python sidecar、注入 engine base URL、sidecar 退出事件、有限自动重启、手动重试。
 - 在线翻译 API key 已通过 Tauri 命令接 Windows Credential Manager,前端可保存/加载/删除,不写入仓库或项目配置。
 - 打包链路已跑通:PyInstaller sidecar + `cargo tauri build` 可产出 NSIS/MSI。`shell/src-tauri/binaries/` 为本地/CI 生成物,已忽略。
@@ -35,7 +36,7 @@
 
 ## 仍需完成/确认
 
-1. 准备一段真实日语视频,做一次完整端到端验收。首次 ASR 会下载 Whisper 模型,需要确认代理/HuggingFace 访问和磁盘缓存。
+1. 准备一段真实日语视频,做一次完整端到端验收。`large-v3` 已在当前开发机缓存并通过 `local_files_only=True` 加载验证;其他机器首次使用仍需下载。
 2. 用真实 Ollama/OpenAI/DeepL 配置各跑一次翻译冒烟测试。当前单元测试覆盖解析和控制流,未覆盖真实外部服务质量。
 3. 推 tag 触发正式 GitHub Release:
    ```powershell

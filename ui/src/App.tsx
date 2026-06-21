@@ -69,6 +69,26 @@ type SaveSegmentsResponse = {
   result: Record<string, string>;
 };
 
+type ModelStatus = {
+  model: string;
+  repo_id: string;
+  cached: boolean;
+  downloaded_bytes: number;
+  total_bytes: number;
+};
+
+type ModelDownloadEvent = {
+  stage: 'checking' | 'downloading' | 'done' | 'failed';
+  model: string;
+  repo_id?: string;
+  file?: string;
+  progress?: number;
+  downloaded_bytes?: number;
+  total_bytes?: number;
+  speed_bytes?: number;
+  error?: string;
+};
+
 type PathFile = File & {
   path?: string;
 };
@@ -113,6 +133,18 @@ function formatSeconds(value: number) {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(
     millis,
   ).padStart(3, '0')}`;
+}
+
+function formatBytes(value: number | undefined) {
+  if (!value || value <= 0) return '-';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let next = value;
+  let unit = 0;
+  while (next >= 1024 && unit < units.length - 1) {
+    next /= 1024;
+    unit += 1;
+  }
+  return `${next.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
 function cleanOptions(options: TaskOptions): TaskOptions {
@@ -162,7 +194,10 @@ export function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [credentialStatus, setCredentialStatus] = useState<Record<string, boolean>>({});
   const [isCredentialBusy, setIsCredentialBusy] = useState(false);
+  const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
+  const [modelDownload, setModelDownload] = useState<ModelDownloadEvent | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const modelEventSourceRef = useRef<EventSource | null>(null);
 
   const apiBaseUrl = useMemo(() => {
     const raw = manualBaseUrl || baseUrl || '';
@@ -174,6 +209,13 @@ export function App() {
   const progressPercent = Math.round(taskEvent.progress * 100);
   const currentProvider = onlineProvider(options.engine_params);
   const hasStoredApiKey = Boolean(credentialStatus[currentProvider]);
+  const effectiveModel = options.model || capabilities?.default_model || 'large-v3';
+  const isEffectiveModelCached = Boolean(
+    modelStatus?.cached && modelStatus.model === effectiveModel,
+  );
+  const modelProgressPercent = Math.round((modelDownload?.progress || 0) * 100);
+  const isModelDownloading =
+    modelDownload?.stage === 'checking' || modelDownload?.stage === 'downloading';
 
   useEffect(() => {
     let disposed = false;
@@ -280,6 +322,28 @@ export function App() {
   }, [apiBaseUrl]);
 
   useEffect(() => {
+    if (!apiBaseUrl || !effectiveModel) return;
+
+    const controller = new AbortController();
+    void fetch(`${apiBaseUrl}/models/${encodeURIComponent(effectiveModel)}/status`, {
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<ModelStatus>;
+      })
+      .then((data) => {
+        setModelStatus(data);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setModelStatus(null);
+      });
+
+    return () => controller.abort();
+  }, [apiBaseUrl, effectiveModel]);
+
+  useEffect(() => {
     if (options.engine !== 'online') return;
 
     let disposed = false;
@@ -295,6 +359,12 @@ export function App() {
     };
   }, [currentProvider, options.engine]);
 
+  useEffect(() => {
+    return () => {
+      modelEventSourceRef.current?.close();
+    };
+  }, []);
+
   function apiUrl(path: string) {
     if (!apiBaseUrl) {
       throw new Error('engine is not ready');
@@ -309,6 +379,55 @@ export function App() {
     } catch (error) {
       setMessage(`引擎启动失败: ${String(error)}`);
     }
+  }
+
+  async function refreshModelStatus(model = effectiveModel) {
+    if (!apiBaseUrl) return;
+    try {
+      const response = await fetch(apiUrl(`/models/${encodeURIComponent(model)}/status`));
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setModelStatus((await response.json()) as ModelStatus);
+    } catch {
+      setModelStatus(null);
+    }
+  }
+
+  function closeModelEventSource() {
+    modelEventSourceRef.current?.close();
+    modelEventSourceRef.current = null;
+  }
+
+  function startModelDownload() {
+    if (!apiBaseUrl || !effectiveModel || isModelDownloading) return;
+    closeModelEventSource();
+    setModelDownload({
+      stage: 'checking',
+      model: effectiveModel,
+      progress: 0,
+    });
+    setMessage(`正在下载 ${effectiveModel}`);
+
+    const source = new EventSource(
+      apiUrl(`/models/download/events?model=${encodeURIComponent(effectiveModel)}`),
+    );
+    modelEventSourceRef.current = source;
+    source.onmessage = (event) => {
+      const next = JSON.parse(event.data) as ModelDownloadEvent;
+      setModelDownload(next);
+      if (next.stage === 'done') {
+        closeModelEventSource();
+        setMessage(`${next.model} 已缓存`);
+        void refreshModelStatus(next.model);
+      }
+      if (next.stage === 'failed') {
+        closeModelEventSource();
+        setMessage(`模型下载失败: ${next.error || '未知错误'}`);
+      }
+    };
+    source.onerror = () => {
+      closeModelEventSource();
+      setMessage('模型下载连接中断');
+    };
   }
 
   async function saveCurrentApiKey() {
@@ -712,6 +831,64 @@ export function App() {
                   <option value="base">base</option>
                 </select>
               </label>
+              <div className="wide-control model-cache">
+                <div className="model-cache-head">
+                  <div>
+                    <span>模型缓存</span>
+                    <strong>{effectiveModel}</strong>
+                  </div>
+                  <span>
+                    {isModelDownloading ? '下载中' : isEffectiveModelCached ? '已缓存' : '未缓存'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={startModelDownload}
+                    disabled={!apiBaseUrl || isModelDownloading || isEffectiveModelCached}
+                  >
+                    下载
+                  </button>
+                </div>
+                <div className="model-progress">
+                  <div
+                    style={{
+                      width: `${
+                        isModelDownloading ? modelProgressPercent : isEffectiveModelCached ? 100 : 0
+                      }%`,
+                    }}
+                  />
+                </div>
+                <div className="model-cache-meta">
+                  <span>
+                    {isModelDownloading
+                      ? `${modelProgressPercent}%`
+                      : isEffectiveModelCached
+                        ? '100%'
+                        : '-'}
+                  </span>
+                  <span>
+                    {formatBytes(
+                      modelDownload?.downloaded_bytes ||
+                        (modelStatus?.model === effectiveModel
+                          ? modelStatus.downloaded_bytes
+                          : undefined),
+                    )}
+                    {modelDownload?.total_bytes ||
+                    (modelStatus?.model === effectiveModel ? modelStatus.total_bytes : 0)
+                      ? ` / ${formatBytes(
+                          modelDownload?.total_bytes ||
+                            (modelStatus?.model === effectiveModel
+                              ? modelStatus.total_bytes
+                              : undefined),
+                        )}`
+                      : ''}
+                  </span>
+                  <span>
+                    {modelDownload?.speed_bytes
+                      ? `${formatBytes(modelDownload.speed_bytes)}/s`
+                      : ''}
+                  </span>
+                </div>
+              </div>
               <label>
                 设备
                 <select

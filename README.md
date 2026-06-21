@@ -50,6 +50,10 @@ cd shell/src-tauri && cargo tauri dev
   - `DEEPL_API_KEY`,可选 `DEEPL_ENDPOINT`
   - `OLLAMA_BASE_URL`, `OLLAMA_MODEL`
 
+## Whisper 模型
+
+页面会显示当前 Whisper 模型的缓存状态,并可通过“下载”按钮预下载模型。下载进度通过引擎 SSE 推送,模型仍保存到 HuggingFace 默认缓存目录,后续识别会直接复用。
+
 ## 代码规范
 
 - Python:`ruff`(lint + import 排序)+ `black`(格式)+ `mypy`(类型)
