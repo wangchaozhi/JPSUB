@@ -1,7 +1,8 @@
 """语音识别:faster-whisper,GPU/CPU 自适应。"""
+
 from __future__ import annotations
 
-from typing import Callable, Iterable
+from collections.abc import Callable
 
 from .models import Segment, TaskOptions
 
@@ -13,6 +14,7 @@ def detect_device() -> tuple[str, str, str]:
     """
     try:
         import ctranslate2
+
         if ctranslate2.get_cuda_device_count() > 0:
             return "cuda", "float16", "large-v3"
     except Exception:
@@ -40,9 +42,9 @@ def transcribe(
 
     seg_iter, info = model.transcribe(
         audio_wav,
-        language="ja",          # 显式固定日语
-        task="transcribe",      # 识别为日文;译中文交给 translate 模块
-        vad_filter=True,        # 过滤静音,减少幻觉
+        language="ja",  # 显式固定日语
+        task="transcribe",  # 识别为日文;译中文交给 translate 模块
+        vad_filter=True,  # 过滤静音,减少幻觉
     )
     duration = audio_duration or getattr(info, "duration", 0.0) or 0.0
 

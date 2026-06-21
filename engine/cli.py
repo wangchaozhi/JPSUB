@@ -1,7 +1,8 @@
 """命令行入口:视频 -> 中文字幕。先用它跑通整条链路。
 
-  python -m engine.cli input.mp4 -o out.srt --model large-v3
+python -m engine.cli input.mp4 -o out.srt --model large-v3
 """
+
 from __future__ import annotations
 
 import argparse

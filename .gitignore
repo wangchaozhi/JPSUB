@@ -11,10 +11,12 @@ dist/
 .pytest_cache/
 
 # PyInstaller
+*.spec
 *.spec.bak
 engine_dist/
 
 # Rust / Tauri
+shell/src-tauri/binaries/
 shell/src-tauri/target/
 shell/src-tauri/gen/
 

@@ -3,6 +3,7 @@
 启动后第一行 stdout 打印实际端口,Rust 侧读取后注入前端。
   python -m engine.server
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -126,6 +127,7 @@ def update_segments(task_id: str, body: list[SegmentBody]):
 @app.get("/tasks/{task_id}/events")
 async def events(task_id: str):
     """SSE:轮询任务状态并推送 stage/progress。"""
+
     async def gen():
         last = None
         while True:
@@ -177,7 +179,9 @@ def _validate_segments(segments: list[Segment]) -> None:
         if seg.start < 0 or seg.end <= seg.start:
             raise HTTPException(400, f"invalid time range at segment {seg.index}")
         if seg.index > 0 and seg.start < previous_start:
-            raise HTTPException(400, f"segments must be sorted by start time at segment {seg.index}")
+            raise HTTPException(
+                400, f"segments must be sorted by start time at segment {seg.index}"
+            )
         previous_start = seg.start
 
 

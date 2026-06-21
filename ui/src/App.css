@@ -253,6 +253,10 @@ p {
   gap: 10px;
 }
 
+.wide-control {
+  grid-column: 1 / -1;
+}
+
 .segmented {
   display: grid;
   grid-template-columns: 1fr 1fr;

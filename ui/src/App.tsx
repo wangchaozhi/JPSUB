@@ -35,6 +35,8 @@ type TaskOptions = {
   engine_params: {
     provider?: string;
     model_name?: string;
+    base_url?: string;
+    api_key?: string;
   };
   output_format: OutputFormat;
   bilingual: boolean;
@@ -77,7 +79,7 @@ const defaultOptions: TaskOptions = {
   engine: 'local',
   engine_params: {
     model_name: 'qwen2.5',
-    provider: 'deepl',
+    provider: 'openai',
   },
   output_format: 'srt',
   bilingual: false,
@@ -561,18 +563,59 @@ export function App() {
                   <option value="online">在线</option>
                 </select>
               </label>
-              {options.engine === 'online' ? (
-                <label>
-                  Provider
-                  <select
-                    value={options.engine_params.provider || 'deepl'}
-                    onChange={(event) => updateEngineParam('provider', event.target.value)}
-                  >
-                    <option value="deepl">DeepL</option>
-                    <option value="google">Google</option>
-                    <option value="openai">OpenAI</option>
-                  </select>
-                </label>
+      {options.engine === 'online' ? (
+                <>
+                  <label>
+                    Provider
+                    <select
+                      value={options.engine_params.provider || 'openai'}
+                      onChange={(event) => updateEngineParam('provider', event.target.value)}
+                    >
+                      <option value="openai">OpenAI</option>
+                      <option value="deepl">DeepL</option>
+                    </select>
+                  </label>
+                  <label>
+                    模型/端点
+                    <input
+                      value={
+                        options.engine_params.provider === 'deepl'
+                          ? options.engine_params.base_url || ''
+                          : options.engine_params.model_name || ''
+                      }
+                      onChange={(event) =>
+                        updateEngineParam(
+                          options.engine_params.provider === 'deepl' ? 'base_url' : 'model_name',
+                          event.target.value,
+                        )
+                      }
+                      placeholder={
+                        options.engine_params.provider === 'deepl'
+                          ? 'DeepL endpoint 可留空'
+                          : 'gpt-4o-mini'
+                      }
+                    />
+                  </label>
+                  <label className="wide-control">
+                    API key
+                    <input
+                      type="password"
+                      value={options.engine_params.api_key || ''}
+                      onChange={(event) => updateEngineParam('api_key', event.target.value)}
+                      placeholder="仅本次运行使用"
+                    />
+                  </label>
+                  {options.engine_params.provider === 'openai' ? (
+                    <label className="wide-control">
+                      Base URL
+                      <input
+                        value={options.engine_params.base_url || ''}
+                        onChange={(event) => updateEngineParam('base_url', event.target.value)}
+                        placeholder="https://api.openai.com/v1"
+                      />
+                    </label>
+                  ) : null}
+                </>
               ) : (
                 <label>
                   本地模型

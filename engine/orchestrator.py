@@ -1,10 +1,12 @@
 """任务编排:把媒体→识别→翻译→字幕串成可观测、可取消的流水线。"""
+
 from __future__ import annotations
 
 import tempfile
 import threading
+from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
-from typing import Callable
 
 from . import asr, media, subtitle, translate
 from .models import STAGE_WEIGHTS, Segment, Stage, Task, TaskError
@@ -56,7 +58,8 @@ def run(
 
         # 2. 识别
         segments: list[Segment] = asr.transcribe(
-            wav, task.options,
+            wav,
+            task.options,
             on_progress=lambda p: emit(Stage.TRANSCRIBING, p),
             audio_duration=duration,
             is_canceled=canceled,
@@ -70,7 +73,8 @@ def run(
         # 3. 翻译
         translator = translate.get_translator(task.options)
         segments = translator.translate(
-            segments, task.options,
+            segments,
+            task.options,
             on_progress=lambda p: emit(Stage.TRANSLATING, p),
             is_canceled=canceled,
         )
@@ -110,14 +114,10 @@ def run(
     finally:
         # 清理临时文件
         for p in workdir.glob("*"):
-            try:
+            with suppress(OSError):
                 p.unlink()
-            except OSError:
-                pass
-        try:
+        with suppress(OSError):
             workdir.rmdir()
-        except OSError:
-            pass
     return task
 
 

@@ -89,7 +89,6 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force ci-logs, release-assets | Out-Null
-          "from engine.server import main; main()" | Set-Content -Encoding UTF8 ci_engine_entry.py
           python -m pip install --upgrade pip *>&1 | Tee-Object -FilePath ci-logs/engine-sidecar.log
           python -m pip install -e ".[dev]" *>&1 | Tee-Object -FilePath ci-logs/engine-sidecar.log -Append
           python -m PyInstaller `
@@ -101,7 +100,7 @@ jobs:
             --collect-submodules faster_whisper `
             --collect-submodules ctranslate2 `
             --collect-submodules sse_starlette `
-            ci_engine_entry.py *>&1 | Tee-Object -FilePath ci-logs/engine-sidecar.log -Append
+            engine/sidecar.py *>&1 | Tee-Object -FilePath ci-logs/engine-sidecar.log -Append
           Copy-Item dist/engine-x86_64-pc-windows-msvc.exe release-assets/engine-x86_64-pc-windows-msvc.exe -ErrorAction Stop
 
       - name: Upload sidecar asset
@@ -163,10 +162,15 @@ jobs:
 
             choco install ffmpeg -y --no-progress *>&1 | Tee-Object -FilePath ci-logs/tauri-bundle.log
             $ffmpeg = (Get-Command ffmpeg.exe -ErrorAction Stop).Source
+            $ffprobe = (Get-Command ffprobe.exe -ErrorAction Stop).Source
             Copy-Item $ffmpeg shell/src-tauri/binaries/ffmpeg.exe -Force
+            Copy-Item $ffprobe shell/src-tauri/binaries/ffprobe.exe -Force
+            Copy-Item -Path (Join-Path (Split-Path $ffmpeg) "*.dll") -Destination shell/src-tauri/binaries -Force -ErrorAction SilentlyContinue
 
             cargo install tauri-cli --locked *>&1 | Tee-Object -FilePath ci-logs/tauri-bundle.log -Append
-            cargo tauri build --manifest-path shell/src-tauri/Cargo.toml *>&1 | Tee-Object -FilePath ci-logs/tauri-bundle.log -Append
+            Push-Location shell/src-tauri
+            cargo tauri build *>&1 | Tee-Object -FilePath ../../ci-logs/tauri-bundle.log -Append
+            Pop-Location
 
             Get-ChildItem shell/src-tauri/target/release/bundle -Recurse -File |
               Copy-Item -Destination release-assets -Force

@@ -2,12 +2,12 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "jpsub",
   "version": "0.1.0",
-  "identifier": "com.jpsub.app",
+  "identifier": "com.jpsub.desktop",
   "build": {
     "frontendDist": "../../ui/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm --prefix ../../ui run dev",
-    "beforeBuildCommand": "npm --prefix ../../ui run build"
+    "beforeDevCommand": "npm --prefix ../ui run dev",
+    "beforeBuildCommand": "npm --prefix ../ui run build"
   },
   "app": {
     "windows": [
@@ -28,6 +28,6 @@
     "targets": ["nsis", "msi"],
     "icon": ["icons/icon.ico"],
     "externalBin": ["binaries/engine"],
-    "resources": ["binaries/ffmpeg.exe"]
+    "resources": ["binaries"]
   }
 }

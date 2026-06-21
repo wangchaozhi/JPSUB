@@ -1,4 +1,5 @@
 """字幕序列化:SRT / ASS,支持双语。"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -14,8 +15,9 @@ def _line(seg: Segment, bilingual: bool) -> str:
 
 
 def write_srt(segments: list[Segment], out_path: str, bilingual: bool = False) -> str:
-    import srt  # pip install srt
     from datetime import timedelta
+
+    import srt  # pip install srt
 
     items = [
         srt.Subtitle(
@@ -36,11 +38,13 @@ def write_ass(segments: list[Segment], out_path: str, bilingual: bool = False) -
 
     subs = pysubs2.SSAFile()
     for s in segments:
-        subs.append(pysubs2.SSAEvent(
-            start=int(s.start * 1000),
-            end=int(s.end * 1000),
-            text=_line(s, bilingual).replace("\n", r"\N"),
-        ))
+        subs.append(
+            pysubs2.SSAEvent(
+                start=int(s.start * 1000),
+                end=int(s.end * 1000),
+                text=_line(s, bilingual).replace("\n", r"\N"),
+            )
+        )
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     subs.save(out_path)
     return out_path

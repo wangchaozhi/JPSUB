@@ -1,13 +1,14 @@
 """核心数据结构。"""
+
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field, asdict
-from enum import Enum
+from dataclasses import asdict, dataclass, field
+from enum import StrEnum
 from typing import Any
 
 
-class Stage(str, Enum):
+class Stage(StrEnum):
     PENDING = "pending"
     EXTRACTING = "extracting"
     TRANSCRIBING = "transcribing"
@@ -30,10 +31,10 @@ STAGE_WEIGHTS: dict[Stage, float] = {
 @dataclass
 class Segment:
     index: int
-    start: float          # 秒
+    start: float  # 秒
     end: float
-    text_src: str         # 日文原文
-    text_zh: str = ""     # 中文译文,翻译后填充
+    text_src: str  # 日文原文
+    text_zh: str = ""  # 中文译文,翻译后填充
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -41,11 +42,11 @@ class Segment:
 
 @dataclass
 class TaskOptions:
-    model: str | None = None          # tiny|base|small|medium|large-v3;None=自适应默认
-    device: str | None = None         # cuda|cpu;None=自适应
-    engine: str = "local"             # local | online
+    model: str | None = None  # tiny|base|small|medium|large-v3;None=自适应默认
+    device: str | None = None  # cuda|cpu;None=自适应
+    engine: str = "local"  # local | online
     engine_params: dict[str, Any] = field(default_factory=dict)
-    output_format: str = "srt"        # srt | ass
+    output_format: str = "srt"  # srt | ass
     bilingual: bool = False
     burn_in: bool = False
     glossary: list[dict[str, str]] = field(default_factory=list)  # [{"src":..,"dst":..}]
@@ -53,7 +54,7 @@ class TaskOptions:
 
 @dataclass
 class TaskError:
-    kind: str             # input|engine_missing|oom|auth|network|unknown
+    kind: str  # input|engine_missing|oom|auth|network|unknown
     message: str
     hint: str = ""
 

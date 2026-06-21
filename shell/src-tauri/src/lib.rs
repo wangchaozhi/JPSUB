@@ -6,7 +6,7 @@
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 
@@ -16,7 +16,7 @@ struct EngineState {
     port: Mutex<Option<u16>>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct Capabilities {
     base_url: String,
 }
@@ -56,9 +56,12 @@ fn spawn_engine(app: &tauri::AppHandle) {
                     if let Ok(port) = trimmed.parse::<u16>() {
                         let state = handle.state::<EngineState>();
                         *state.port.lock().unwrap() = Some(port);
-                        let _ = handle.emit("engine-ready", Capabilities {
-                            base_url: format!("http://127.0.0.1:{port}"),
-                        });
+                        let _ = handle.emit(
+                            "engine-ready",
+                            Capabilities {
+                                base_url: format!("http://127.0.0.1:{port}"),
+                            },
+                        );
                     }
                 }
                 CommandEvent::Stderr(line) => {
