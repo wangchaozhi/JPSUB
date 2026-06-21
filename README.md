@@ -38,7 +38,7 @@ python -m engine.cli input.mp4 -o out.srt
 
 # 4. 跑 Tauri 壳(需 Rust 工具链 + Node)
 cd ui && npm install && cd ..
-cd shell/src-tauri && cargo tauri dev
+.\start-dev.cmd
 ```
 
 ## 翻译引擎

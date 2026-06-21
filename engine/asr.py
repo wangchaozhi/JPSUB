@@ -5,8 +5,12 @@ from __future__ import annotations
 import ctypes
 import os
 from collections.abc import Callable
+from contextlib import suppress
+from pathlib import Path
 
 from .models import Segment, TaskOptions
+
+_DLL_DIRECTORY_HANDLES: list[object] = []
 
 
 def detect_device() -> tuple[str, str, str]:
@@ -100,6 +104,7 @@ def _run_transcribe(
 def _cuda_runtime_available() -> bool:
     if os.name != "nt":
         return True
+    _configure_cuda_dll_search_path()
     try:
         ctypes.WinDLL("cublas64_12.dll")
     except OSError:
@@ -119,3 +124,26 @@ def _is_cuda_runtime_error(exc: Exception) -> bool:
             "library cublas",
         )
     )
+
+
+def _configure_cuda_dll_search_path() -> None:
+    candidates: list[Path] = []
+    for env_key in ("CUDA_PATH", "CUDA_HOME"):
+        value = os.getenv(env_key)
+        if value:
+            candidates.append(Path(value) / "bin")
+
+    toolkit_root = Path(r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA")
+    if toolkit_root.exists():
+        candidates.extend(sorted(toolkit_root.glob("v*/bin"), reverse=True))
+
+    for path in candidates:
+        if not path.exists():
+            continue
+        text = str(path)
+        current_path = os.environ.get("PATH", "")
+        if text.lower() not in {item.lower() for item in current_path.split(os.pathsep)}:
+            os.environ["PATH"] = text + os.pathsep + current_path
+        if hasattr(os, "add_dll_directory"):
+            with suppress(OSError):
+                _DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(text))
