@@ -54,6 +54,8 @@ cd shell/src-tauri && cargo tauri dev
 
 页面会显示当前 Whisper 模型的缓存状态,并可通过“下载”按钮预下载模型。下载进度通过引擎 SSE 推送,模型仍保存到 HuggingFace 默认缓存目录,后续识别会直接复用。
 
+GPU 推理需要系统或打包目录能加载 CUDA 12/cuDNN 运行库(如 `cublas64_12.dll`)。缺失时应用会自动降级到 CPU/int8/medium;若手动选择 CUDA,会显示 CUDA 运行库缺失提示。
+
 ## 代码规范
 
 - Python:`ruff`(lint + import 排序)+ `black`(格式)+ `mypy`(类型)

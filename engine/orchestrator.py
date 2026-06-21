@@ -124,6 +124,8 @@ def run(
 def _classify(e: Exception) -> TaskError:
     msg = str(e)
     low = msg.lower()
+    if "cublas64_12.dll" in low or "cudnn" in low or "cuda runtime" in low:
+        return TaskError("engine_missing", msg, "CUDA 运行库缺失,请选择 CPU 或安装 CUDA 12/cuDNN")
     if "不存在" in msg or "no such file" in low or "not found" in low:
         return TaskError("input", msg, "检查视频路径是否完整,建议用“选择”按钮重新选文件")
     if "ffmpeg" in low or "ffprobe" in low:

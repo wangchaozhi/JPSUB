@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ctypes
+import os
 from collections.abc import Callable
 
 from .models import Segment, TaskOptions
@@ -15,7 +17,7 @@ def detect_device() -> tuple[str, str, str]:
     try:
         import ctranslate2
 
-        if ctranslate2.get_cuda_device_count() > 0:
+        if ctranslate2.get_cuda_device_count() > 0 and _cuda_runtime_available():
             return "cuda", "float16", "large-v3"
     except Exception:
         pass
@@ -30,16 +32,51 @@ def transcribe(
     is_canceled: Callable[[], bool] | None = None,
 ) -> list[Segment]:
     """识别日语音轨,返回带时间戳的分段列表。"""
-    from faster_whisper import WhisperModel
-
-    device, compute_type, default_model = detect_device()
-    device = options.device or device
+    detected_device, compute_type, default_model = detect_device()
+    device = options.device or detected_device
     if device == "cpu":
         compute_type = "int8"
     model_size = options.model or default_model
 
-    model = WhisperModel(model_size, device=device, compute_type=compute_type)
+    try:
+        return _run_transcribe(
+            audio_wav,
+            model_size,
+            device,
+            compute_type,
+            on_progress,
+            audio_duration,
+            is_canceled,
+        )
+    except Exception as exc:
+        if options.device == "cuda" or device != "cuda" or not _is_cuda_runtime_error(exc):
+            raise
+        device = "cpu"
+        compute_type = "int8"
+        model_size = options.model or "medium"
+        return _run_transcribe(
+            audio_wav,
+            model_size,
+            device,
+            compute_type,
+            on_progress,
+            audio_duration,
+            is_canceled,
+        )
 
+
+def _run_transcribe(
+    audio_wav: str,
+    model_size: str,
+    device: str,
+    compute_type: str,
+    on_progress: Callable[[float], None] | None,
+    audio_duration: float,
+    is_canceled: Callable[[], bool] | None,
+) -> list[Segment]:
+    from faster_whisper import WhisperModel
+
+    model = WhisperModel(model_size, device=device, compute_type=compute_type)
     seg_iter, info = model.transcribe(
         audio_wav,
         language="ja",  # 显式固定日语
@@ -58,3 +95,27 @@ def transcribe(
     if on_progress:
         on_progress(1.0)
     return results
+
+
+def _cuda_runtime_available() -> bool:
+    if os.name != "nt":
+        return True
+    try:
+        ctypes.WinDLL("cublas64_12.dll")
+    except OSError:
+        return False
+    return True
+
+
+def _is_cuda_runtime_error(exc: Exception) -> bool:
+    low = str(exc).lower()
+    return any(
+        token in low
+        for token in (
+            "cublas64_12.dll",
+            "cudnn",
+            "cuda driver",
+            "cuda runtime",
+            "library cublas",
+        )
+    )
