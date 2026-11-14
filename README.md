@@ -2,6 +2,14 @@
 
 Tauri 壳(Rust)+ React 前端 + Python 引擎(sidecar)。重计算在本地完成。
 
+## 项目截图
+
+图片来自[知乎项目介绍](https://zhuanlan.zhihu.com/p/2095646690749559560)。
+
+**桌面工作台**
+
+![桌面工作台](docs/images/zhihu/2095646690749559560-01.jpg)
+
 ## 仓库结构
 
 ```
